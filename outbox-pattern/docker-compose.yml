@@ -1,0 +1,77 @@
+version: '3'
+services:
+  mysql:
+    container_name: mysql
+    image: mysql:8.2
+    ports:
+      - "3306:3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD=debezium
+      - MYSQL_USER=mysqluser
+      - MYSQL_PASSWORD=mysqlpw
+    volumes:
+      - ./scripts/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - outbox-pattern
+
+  zookeeper:
+    image: quay.io/debezium/zookeeper:3.0.0.Final
+    container_name: zookeeper
+    ports:
+      - 2181:2181
+      - 2888:2888
+      - 3888:3888
+    networks:
+      - outbox-pattern
+
+  kafka:
+    image: quay.io/debezium/kafka:3.0.0.Final
+    container_name: kafka
+    ports:
+      - 9092:9092
+    links:
+      - zookeeper
+    depends_on:
+      - zookeeper
+    environment:
+      - ZOOKEEPER_CONNECT=zookeeper:2181
+    networks:
+      - outbox-pattern
+
+  connect:
+    image: quay.io/debezium/connect:3.0.0.Final
+    container_name: connect
+    ports:
+      - 8083:8083
+    environment:
+      - BOOTSTRAP_SERVERS=kafka:9092
+      - GROUP_ID=1
+      - CONFIG_STORAGE_TOPIC=my_connect_configs
+      - OFFSET_STORAGE_TOPIC=my_connect_offsets
+      - STATUS_STORAGE_TOPIC=my_connect_statuses
+      - ENABLE_APICURIO_CONVERTERS=true
+    links:
+      - kafka
+      - mysql
+    depends_on:
+      - kafka
+      - zookeeper
+      - mysql
+    networks:
+      - outbox-pattern
+
+  kafdrop:
+    image: obsidiandynamics/kafdrop
+    container_name: kafdrop
+    ports:
+      - 9000:9000
+    environment:
+      - KAFKA_BROKERCONNECT=kafka:9092
+    depends_on:
+      - kafka
+    networks:
+      - outbox-pattern
+
+networks:
+  outbox-pattern:
+    driver: bridge
