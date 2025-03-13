@@ -1,0 +1,79 @@
+version: '3.5'
+
+services:
+
+  zookeeper:
+    image: quay.io/debezium/zookeeper:3.0.0.Final
+    ports:
+     - 2181:2181
+     - 2888:2888
+     - 3888:3888
+    networks:
+    - my-network
+  kafka:
+    image: quay.io/debezium/kafka:3.0.0.Final
+    ports:
+     - 9092:9092
+    links:
+     - zookeeper
+    environment:
+     - ZOOKEEPER_CONNECT=zookeeper:2181
+     - KAFKA_GROUP_MIN_SESSION_TIMEOUT_MS=100
+     # For local debugging of aggregator
+     # - ADVERTISED_HOST_NAME=192.168.1.2
+    networks:
+    - my-network
+
+  postgres:
+    image: quay.io/debezium/example-postgres:3.0.0.Final
+    ports:
+      - 5432:5432
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    volumes:
+      - ./inventory-addresses.sql:/docker-entrypoint-initdb.d/zzz.sql
+    networks:
+    - my-network
+
+  connect:
+    image: quay.io/debezium/connect:3.0.0.Final
+    ports:
+      - 8083:8083
+    links:
+      - kafka
+      - postgres
+    environment:
+      - BOOTSTRAP_SERVERS=kafka:9092
+      - GROUP_ID=1
+      - CONFIG_STORAGE_TOPIC=my_connect_configs
+      - OFFSET_STORAGE_TOPIC=my_connect_offsets
+      - STATUS_STORAGE_TOPIC=my_connect_statuses
+    networks:
+      - my-network
+
+  kafdrop:
+    image: obsidiandynamics/kafdrop
+    container_name: kafdrop
+    ports:
+      - 9000:9000
+    environment:
+      - KAFKA_BROKERCONNECT=kafka:9092
+    depends_on:
+      - kafka
+    networks:
+      - my-network
+
+  aggregator:
+    image: quarkus/code-with-quarkus-jvm
+    build:
+      context: aggregator
+      dockerfile: src/main/docker/Dockerfile.jvm
+    environment:
+      QUARKUS_KAFKA_STREAMS_BOOTSTRAP_SERVERS: kafka:9092
+    networks:
+      - my-network
+
+networks:
+  my-network:
+    name: kstreams-fk-join-network
